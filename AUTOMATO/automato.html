@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AutoBot - Task Automation (Interactive)</title>
+<link rel="icon" href="/static/favicon.ico" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/feather-icons"></script>
+<style>
+  /* small custom styles for the 3D calendar + controls */
+  :root{
+    --card-w: 100%;
+    --card-h: 100%;
+  }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+  .card-3d {
+    perspective: 1200px;
+  }
+  .card-3d-inner {
+    transform-style: preserve-3d;
+    transition: transform .6s cubic-bezier(.2,.9,.3,1);
+  }
+  .card-3d:hover .card-3d-inner { transform: rotateX(6deg) rotateY(-8deg) translateZ(6px); }
+  .calendar-front, .calendar-back {
+    backface-visibility: hidden;
+    transform-style: preserve-3d;
+    border-radius: .75rem;
+  }
+  .calendar-back {
+    transform: rotateY(180deg);
+  }
+  .card-flip {
+    transition: transform .5s;
+  }
+  .flipped .card-flip { transform: rotateY(180deg); }
+  .day-cell { min-height: 80px; }
+  .task-dot { width:8px; height:8px; border-radius:999px; display:inline-block; margin-right:4px; }
+  .task-list-empty { color:#9CA3AF }
+  .badge {
+    font-size: 11px; padding: .125rem .5rem; border-radius: .5rem;
+  }
+  /* small responsive tweaks */
+  @media (max-width: 1024px) {
+    .lg\\:grid-cols-4 { grid-template-columns: repeat(1, minmax(0,1fr)); }
+  }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- Main container -->
+<div class="max-w-7xl mx-auto p-6">
+
+  <!-- header -->
+  <header class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+    <div class="flex items-center gap-3">
+      <div class="p-3 rounded-full bg-primary-500 bg-opacity-20">
+        <i data-feather="zap" class="text-primary-500"></i>
+      </div>
+      <div>
+        <h1 class="text-2xl font-bold text-gray-800">Auto<span class="text-primary-500">Bot</span></h1>
+        <p class="text-sm text-gray-500">Task automation • interactive calendar • mini AI summarizer</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 w-full md:w-auto">
+      <div class="relative flex-1 md:flex-none">
+        <input id="search" type="search" placeholder="Search tasks..." class="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500" />
+        <i data-feather="search" class="absolute left-3 top-2.5 text-gray-400"></i>
+      </div>
+      <button id="newTaskBtn" class="px-4 py-2 bg-primary-500 text-white rounded-lg flex items-center gap-2 hover:bg-primary-600">
+        <i data-feather="plus"></i> New Task
+      </button>
+    </div>
+  </header>
+
+  <div class="grid lg:grid-cols-4 gap-6">
+
+    <!-- left: tasks & automations -->
+    <section class="lg:col-span-3 space-y-6">
+
+      <!-- quick stats -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-500">Active Tasks</p>
+              <p id="statActive" class="text-xl font-bold">0</p>
+            </div>
+            <div class="p-3 rounded-full bg-blue-50">
+              <i data-feather="list" class="text-blue-500"></i>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-500">Completed Today</p>
+              <p id="statDoneToday" class="text-xl font-bold">0</p>
+            </div>
+            <div class="p-3 rounded-full bg-green-50">
+              <i data-feather="check-circle" class="text-green-500"></i>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm text-gray-500">Automations</p>
+              <p class="text-xl font-bold">—</p>
+            </div>
+            <div class="p-3 rounded-full bg-purple-50">
+              <i data-feather="repeat" class="text-purple-500"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- tasks list -->
+      <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div class="px-6 py-4 border-b">
+          <h2 class="text-lg font-semibold text-gray-800">Today's Tasks</h2>
+        </div>
+        <div id="taskList" class="divide-y divide-gray-100">
+          <!-- tasks appended here -->
+        </div>
+      </div>
+
+      <!-- automations + summarizer -->
+      <div class="bg-white rounded-xl shadow p-6 grid md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="font-semibold text-gray-800">Automations</h3>
+          <p class="text-sm text-gray-500 mt-2">Simple automations (local demo): auto-clear completed weekly, etc.</p>
+          <div class="mt-4 space-y-3">
+            <button id="runWeeklyReport" class="px-3 py-2 rounded bg-primary-500 text-white">Generate Weekly Report (AI)</button>
+            <button id="autoClear" class="px-3 py-2 rounded border">Clear Completed (Local)</button>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="font-semibold text-gray-800">Mini AI Summarizer</h3>
+          <p class="text-sm text-gray-500 mt-2">Paste your weekly report email or notes and click Summarize.</p>
+          <textarea id="summarizeInput" rows="4" class="w-full mt-3 p-2 border rounded" placeholder="Paste email body or notes..."></textarea>
+          <div class="flex gap-2 mt-3">
+            <button id="summarizeBtn" class="px-3 py-2 rounded bg-indigo-600 text-white">Summarize</button>
+            <button id="summarizeMoreBtn" class="px-3 py-2 rounded border">Shorter</button>
+          </div>
+          <div id="summaryOutput" class="mt-3 p-3 bg-gray-50 rounded min-h-[64px] text-sm"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- right: calendar & activity -->
+    <aside class="space-y-6">
+
+      <!-- 3D Calendar -->
+      <div class="card-3d">
+        <div id="calCard" class="card-3d-inner card-flip bg-transparent">
+          <!-- front -->
+          <div class="calendar-front bg-white p-4 rounded-xl shadow w-[320px] h-[360px]">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h4 id="calMonthLabel" class="text-lg font-semibold text-gray-800"></h4>
+                <p id="calYearLabel" class="text-sm text-gray-500"></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="prevMonth" class="p-2 hover:bg-gray-100 rounded"><i data-feather="chevron-left"></i></button>
+                <button id="nextMonth" class="p-2 hover:bg-gray-100 rounded"><i data-feather="chevron-right"></i></button>
+              </div>
+            </div>
+
+            <div id="calendarGrid" class="grid grid-cols-7 gap-1 text-xs text-gray-600">
+              <!-- calendar cells inserted by JS -->
+            </div>
+            <div class="mt-3 text-xs text-gray-500">Tip: click a day to view/add tasks. Hover calendar to tilt 3D.</div>
+          </div>
+
+          <!-- back: day details -->
+          <div class="calendar-back bg-white p-4 rounded-xl shadow w-[320px] h-[360px] absolute left-0 top-0">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <h4 id="dayLabel" class="text-lg font-semibold text-gray-800"></h4>
+                <p id="daySubLabel" class="text-sm text-gray-500"></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="closeDayView" class="p-2 hover:bg-gray-100 rounded"><i data-feather="x"></i></button>
+              </div>
+            </div>
+            <div id="dayTaskList" class="space-y-3 overflow-auto h-[220px]">
+              <!-- day tasks -->
+            </div>
+
+            <div class="mt-3">
+              <h5 class="text-sm font-semibold text-gray-700">Add quick task</h5>
+              <div class="flex gap-2 mt-2">
+                <input id="quickTaskTitle" type="text" class="flex-1 p-2 border rounded" placeholder="Task title" />
+                <input id="quickTaskTime" type="time" class="p-2 border rounded w-28" />
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button id="addQuickTaskBtn" class="px-3 py-2 bg-primary-500 text-white rounded">Add</button>
+                <button id="backToCal" class="px-3 py-2 border rounded">Back</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- activity feed -->
+      <div class="bg-white rounded-xl shadow p-4 sticky top-6 w-[320px]">
+        <h4 class="font-semibold text-gray-800">Activity</h4>
+        <div id="activityFeed" class="mt-3 space-y-3 text-sm text-gray-700">
+          <!-- activity items -->
+        </div>
+      </div>
+
+    </aside>
+  </div>
+</div>
+
+<!-- floating add button -->
+<button id="fab" class="fixed bottom-6 right-6 bg-primary-500 text-white h-14 w-14 rounded-full shadow-lg flex items-center justify-center hover:bg-primary-600">
+  <i data-feather="plus"></i>
+</button>
+
+<!-- modal for creating/editing tasks -->
+<div id="taskModal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50">
+  <div class="bg-white rounded-xl w-full max-w-xl p-6 shadow-lg">
+    <div class="flex justify-between items-start">
+      <h3 id="modalTitle" class="text-lg font-semibold">New Task</h3>
+      <button id="closeModal" class="text-gray-500"><i data-feather="x"></i></button>
+    </div>
+    <div class="mt-4 grid grid-cols-1 gap-3">
+      <input id="taskTitle" type="text" class="p-2 border rounded" placeholder="Task title" />
+      <textarea id="taskDesc" rows="3" class="p-2 border rounded" placeholder="Description (optional)"></textarea>
+      <div class="flex gap-2">
+        <input id="taskDate" type="date" class="p-2 border rounded" />
+        <input id="taskTime" type="time" class="p-2 border rounded" />
+        <select id="taskTag" class="p-2 border rounded">
+          <option value="Work">Work</option>
+          <option value="Meeting">Meeting</option>
+          <option value="Personal">Personal</option>
+          <option value="Analysis">Analysis</option>
+        </select>
+      </div>
+      <div class="flex justify-end gap-2 mt-3">
+        <button id="saveTaskBtn" class="px-4 py-2 bg-primary-500 text-white rounded">Save Task</button>
+        <button id="deleteTaskBtn" class="px-4 py-2 border rounded hidden text-red-600">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================
+   Data helpers & persistence
+   ============================ */
+feather.replace();
+
+const STORAGE_KEY = "autobot_tasks_v1";
+
+function loadTasks(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  try {
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) {
+    console.error("Load tasks parse error", e);
+    return [];
+  }
+}
+function saveTasks(tasks){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+/* sample tasks if empty */
+let tasks = loadTasks();
+if(!tasks.length){
+  tasks = [
+    { id: cryptoRandomId(), title:"Email client about project update", desc:"Send weekly status", date: todayISO(), time:"14:00", tag:"Work", done:false, created:Date.now()},
+    { id: cryptoRandomId(), title:"Schedule team meeting", desc:"Invite team", date: addDaysISO(1), time:"10:00", tag:"Meeting", done:false, created:Date.now()},
+  ];
+  saveTasks(tasks);
+}
+
+/* ============================
+   Util functions
+   ============================ */
+function cryptoRandomId(){ return 'id-'+Math.random().toString(36).slice(2,9); }
+function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10);}
+function addDaysISO(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function formatDateTime(dStr, tStr){
+  if(!dStr) return "No date";
+  const dt = new Date(dStr + "T" + (tStr||"00:00"));
+  return dt.toLocaleString();
+}
+function minutesUntil(dateStr,timeStr){
+  if(!dateStr) return Infinity;
+  const dt = new Date(dateStr + "T" + (timeStr||"00:00"));
+  return Math.round((dt - new Date())/60000);
+}
+
+/* ============================
+   UI renderers
+   ============================ */
+const taskListEl = document.getElementById('taskList');
+const statActive = document.getElementById('statActive');
+const statDoneToday = document.getElementById('statDoneToday');
+const activityFeed = document.getElementById('activityFeed');
+
+function renderTasks(filterText=""){
+  taskListEl.innerHTML = "";
+  const filtered = tasks
+    .filter(t => !t.deleted)
+    .filter(t => !filterText || (t.title + " " + (t.desc||"")).toLowerCase().includes(filterText.toLowerCase()))
+    .sort((a,b)=> (a.done - b.done) || (a.date||"") - (b.date||"") || a.title.localeCompare(b.title));
+
+  if(!filtered.length){
+    taskListEl.innerHTML = `<div class="p-6 text-center task-list-empty">No tasks. Click "New Task" to add one.</div>`;
+  } else {
+    filtered.forEach(t => {
+      const el = document.createElement('div');
+      el.className = "p-4 hover:bg-gray-50 flex items-start justify-between";
+      el.innerHTML = `
+        <div class="flex items-start gap-4">
+          <div>
+            <input ${t.done ? 'checked' : ''} data-id="${t.id}" class="task-checkbox h-4 w-4" type="checkbox"/>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-base font-medium ${t.done ? 'line-through text-gray-400':''}">${escapeHtml(t.title)}</h3>
+              <span class="badge bg-gray-100 text-gray-700">${t.tag||'Task'}</span>
+            </div>
+            <p class="text-sm text-gray-500">${t.date ? t.date : 'No date'} ${t.time ? '· ' + t.time : ''}</p>
+            <p class="text-sm text-gray-600 mt-1">${t.desc ? escapeHtml(t.desc): ''}</p>
+            <p class="text-xs text-gray-400 mt-1">Due in: <span class="due-count" data-id="${t.id}">${minutesUntil(t.date,t.time)}</span> min</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button data-id="${t.id}" class="edit-btn p-2 hover:bg-gray-100 rounded"><i data-feather="edit"></i></button>
+          <button data-id="${t.id}" class="del-btn p-2 hover:bg-gray-100 rounded"><i data-feather="trash-2"></i></button>
+        </div>
+      `;
+      taskListEl.appendChild(el);
+    });
+  }
+  feather.replace();
+  updateStats();
+  attachTaskListeners();
+}
+
+function updateStats(){
+  statActive.textContent = tasks.filter(t=>!t.done && !t.deleted).length;
+  const today = new Date().toISOString().slice(0,10);
+  statDoneToday.textContent = tasks.filter(t=>t.done && t.date===today).length;
+}
+
+/* activity feed */
+function pushActivity(text){
+  const el = document.createElement('div');
+  el.className = "flex items-start gap-3";
+  el.innerHTML = `<div class="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center"><i data-feather="zap" class="text-gray-500"></i></div>
+    <div><div class="text-sm">${escapeHtml(text)}</div><div class="text-xs text-gray-400">${new Date().toLocaleTimeString()}</div></div>`;
+  activityFeed.prepend(el);
+  feather.replace();
+}
+
+/* ============================
+   task controls (create/edit/delete)
+   ============================ */
+const taskModal = document.getElementById('taskModal');
+const modalTitle = document.getElementById('modalTitle');
+const taskTitle = document.getElementById('taskTitle');
+const taskDesc = document.getElementById('taskDesc');
+const taskDate = document.getElementById('taskDate');
+const taskTime = document.getElementById('taskTime');
+const taskTag = document.getElementById('taskTag');
+const saveTaskBtn = document.getElementById('saveTaskBtn');
+const deleteTaskBtn = document.getElementById('deleteTaskBtn');
+let editingId = null;
+
+document.getElementById('newTaskBtn').addEventListener('click', openNewTask);
+document.getElementById('fab').addEventListener('click', openNewTask);
+document.getElementById('closeModal').addEventListener('click', closeModal);
+
+function openNewTask(){
+  editingId = null;
+  modalTitle.textContent = "New Task";
+  taskTitle.value = "";
+  taskDesc.value = "";
+  taskDate.value = todayISO();
+  taskTime.value = "";
+  taskTag.value = "Work";
+  deleteTaskBtn.classList.add('hidden');
+  taskModal.classList.remove('hidden');
+  taskModal.classList.add('flex');
+}
+
+function closeModal(){
+  taskModal.classList.add('hidden');
+}
+
+saveTaskBtn.addEventListener('click', () => {
+  const title = taskTitle.value.trim();
+  if(!title){ alert("Title required"); return; }
+  const payload = {
+    title,
+    desc: taskDesc.value.trim(),
+    date: taskDate.value || null,
+    time: taskTime.value || null,
+    tag: taskTag.value || 'Task'
+  };
+  if(editingId){
+    const idx = tasks.findIndex(t=>t.id===editingId);
+    if(idx>-1){
+      tasks[idx] = { ...tasks[idx], ...payload };
+      pushActivity(`Task updated: ${payload.title}`);
+    }
+  } else {
+    const t = { id: cryptoRandomId(), ...payload, done:false, created:Date.now() };
+    tasks.push(t);
+    pushActivity(`Task created: ${payload.title}`);
+  }
+  saveTasks(tasks);
+  renderTasks(document.getElementById('search').value);
+  closeModal();
+});
+
+/* edit/delete from list */
+function attachTaskListeners(){
+  document.querySelectorAll('.task-checkbox').forEach(cb=>{
+    cb.onchange = (e)=>{
+      const id = e.target.dataset.id;
+      const t = tasks.find(x=>x.id===id);
+      if(!t) return;
+      t.done = e.target.checked;
+      saveTasks(tasks);
+      renderTasks(document.getElementById('search').value);
+      pushActivity(`${t.done ? 'Completed' : 'Reopened'}: ${t.title}`);
+      // check if completed before due
+      const mins = minutesUntil(t.date,t.time);
+      if(t.done){
+        notify(`${t.title} completed`, mins>=0 ? 'Completed before due.' : 'Completed after due (late).');
+      }
+    };
+  });
+
+  document.querySelectorAll('.edit-btn').forEach(btn=>{
+    btn.onclick = (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const t = tasks.find(x=>x.id===id);
+      if(!t) return;
+      editingId = id;
+      modalTitle.textContent = "Edit Task";
+      taskTitle.value = t.title;
+      taskDesc.value = t.desc||"";
+      taskDate.value = t.date||"";
+      taskTime.value = t.time||"";
+      taskTag.value = t.tag||"Task";
+      deleteTaskBtn.classList.remove('hidden');
+      taskModal.classList.remove('hidden');
+      taskModal.classList.add('flex');
+      deleteTaskBtn.onclick = ()=> {
+        if(!confirm("Delete task?")) return;
+        const idx = tasks.findIndex(x=>x.id===id);
+        if(idx>-1) tasks.splice(idx,1);
+        saveTasks(tasks);
+        pushActivity(`Deleted: ${t.title}`);
+        renderTasks(document.getElementById('search').value);
+        closeModal();
+      };
+    };
+  });
+
+  document.querySelectorAll('.del-btn').forEach(btn=>{
+    btn.onclick = (e)=>{
+      const id = e.currentTarget.dataset.id;
+      const idx = tasks.findIndex(x=>x.id===id);
+      if(idx>-1){
+        const t = tasks[idx];
+        if(!confirm(`Delete "${t.title}"?`)) return;
+        tasks.splice(idx,1);
+        saveTasks(tasks);
+        renderTasks(document.getElementById('search').value);
+        pushActivity(`Deleted: ${t.title}`);
+      }
+    };
+  });
+}
+
+/* search */
+document.getElementById('search').addEventListener('input', (e)=>{
+  renderTasks(e.target.value);
+});
+
+/* ============================
+   Notifications (browser)
+   ============================ */
+let notifPermission = Notification && Notification.permission;
+async function ensureNotificationPermission(){
+  if(!("Notification" in window)) return false;
+  if(Notification.permission === "granted") return true;
+  if(Notification.permission !== "denied"){
+    const perm = await Notification.requestPermission();
+    return perm === "granted";
+  }
+  return false;
+}
+function notify(title, body){
+  // in-page toast
+  pushActivity(`${title} — ${body}`);
+  ensureNotificationPermission().then(ok=>{
+    if(ok){
+      new Notification(title, { body });
+    }
+  });
+}
+
+/* scheduled checks for due tasks */
+const DUE_LEAD_MIN = 10; // notify when task is within this many minutes
+setInterval(()=>{
+  // update due counters in UI
+  document.querySelectorAll('.due-count').forEach(el=>{
+    const id = el.dataset.id;
+    const t = tasks.find(x=>x.id===id);
+    if(!t) return;
+    const mins = minutesUntil(t.date,t.time);
+    el.textContent = mins===Infinity ? '—' : mins;
+    if(mins <= DUE_LEAD_MIN && mins >= 0 && !t._notifiedAboutDue && !t.done){
+      notify(`Task due soon: ${t.title}`, `Due in ${mins} minutes (${t.date} ${t.time||''})`);
+      t._notifiedAboutDue = true; // avoid repeated alerts
+      saveTasks(tasks);
+    }
+    if(mins < 0 && !t.done && !t._notifiedOverdue){
+      notify(`Task overdue: ${t.title}`, `Was due ${Math.abs(mins)} minutes ago (${t.date} ${t.time||''})`);
+      t._notifiedOverdue = true;
+      saveTasks(tasks);
+    }
+  });
+  updateStats();
+}, 30000); // check every 30s
+
+/* ============================
+   Summarizer (simple extractive)
+   ============================ */
+function escapeHtml(s){ return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+
+// naive extractive summarizer:
+// - split into sentences, score by length and presence of "important" words and return top N.
+const IMPORTANT_WORDS = ["deliver","deadline","completed","issue","summary","summary","update","urgent","blocked","progress","report","client","priority"];
+
+function summarizeText(text, sentences=3){
+  if(!text) return "No text provided.";
+  // normalize
+  text = text.replace(/\s+/g,' ').trim();
+  const sents = text.match(/[^.!?]+[.!?]*/g) || [text];
+  const scores = sents.map(s=>{
+    const lower = s.toLowerCase();
+    let score = Math.min(1, s.length/140); // prefer medium-length sentences
+    IMPORTANT_WORDS.forEach(w=>{ if(lower.includes(w)) score += 1; });
+    // words overlap with title/keywords -> increase
+    return score;
+  });
+  // pick top sentences
+  const idxs = scores.map((sc,i)=>({i,sc})).sort((a,b)=>b.sc - a.sc).slice(0,Math.min(sentences,scores.length)).sort((a,b)=>a.i-b.i);
+  return idxs.map(x=>sents[x.i].trim()).join(" ");
+}
+
+document.getElementById('summarizeBtn').addEventListener('click', ()=>{
+  const t = document.getElementById('summarizeInput').value;
+  const out = summarizeText(t,4);
+  document.getElementById('summaryOutput').textContent = out;
+});
+document.getElementById('summarizeMoreBtn').addEventListener('click', ()=>{
+  const t = document.getElementById('summarizeInput').value;
+  const out = summarizeText(t,1);
+  document.getElementById('summaryOutput').textContent = out;
+});
+
+/* weekly report generator (simple) — compiles completed tasks from last 7 days */
+document.getElementById('runWeeklyReport').addEventListener('click', ()=>{
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(now.getDate()-7);
+  const items = tasks.filter(t => t.done && new Date((t.date||todayISO())+"T00:00") >= weekAgo);
+  if(!items.length){
+    alert("No completed tasks in the last 7 days.");
+    return;
+  }
+  const lines = items.map(t => `• ${t.title} ${t.date ? 'on '+t.date : ''} ${t.time ? '@'+t.time : ''} — ${t.desc||''}`);
+  const reportText = `Weekly report (${weekAgo.toLocaleDateString()} — ${now.toLocaleDateString()}):\n\n` + lines.join("\n");
+  // summarize it automatically
+  const summary = summarizeText(reportText,3);
+  document.getElementById('summarizeInput').value = reportText;
+  document.getElementById('summaryOutput').textContent = summary;
+  pushActivity("Weekly report generated (AI).");
+});
+
+/* auto-clear completed */
+document.getElementById('autoClear').addEventListener('click', ()=>{
+  if(!confirm("Clear completed tasks now?")) return;
+  tasks = tasks.filter(t=>!t.done);
+  saveTasks(tasks);
+  renderTasks();
+  pushActivity("Cleared completed tasks.");
+});
+
+/* ============================
+   Calendar (3D) implementation
+   ============================ */
+let calState = { viewYear: new Date().getFullYear(), viewMonth: new Date().getMonth(), flipped:false, selectedDay:null };
+
+const calMonthLabel = document.getElementById('calMonthLabel');
+const calYearLabel = document.getElementById('calYearLabel');
+const calendarGrid = document.getElementById('calendarGrid');
+const calCard = document.getElementById('calCard');
+const dayLabel = document.getElementById('dayLabel');
+const daySubLabel = document.getElementById('daySubLabel');
+const dayTaskList = document.getElementById('dayTaskList');
+const closeDayView = document.getElementById('closeDayView');
+const prevMonth = document.getElementById('prevMonth');
+const nextMonth = document.getElementById('nextMonth');
+const addQuickTaskBtn = document.getElementById('addQuickTaskBtn');
+const quickTaskTitle = document.getElementById('quickTaskTitle');
+const quickTaskTime = document.getElementById('quickTaskTime');
+const backToCal = document.getElementById('backToCal');
+
+function renderCalendar(){
+  const y = calState.viewYear;
+  const m = calState.viewMonth;
+  calMonthLabel.textContent = new Date(y,m,1).toLocaleString(undefined,{month:'long'});
+  calYearLabel.textContent = ''+y;
+  calendarGrid.innerHTML = "";
+  const first = new Date(y,m,1);
+  const startDay = first.getDay(); // 0..6
+  const daysInMonth = new Date(y,m+1,0).getDate();
+
+  // week day headers
+  const headers = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  headers.forEach(h=>{
+    const hd = document.createElement('div');
+    hd.className = "text-center font-medium text-xs text-gray-500";
+    hd.textContent = h;
+    calendarGrid.appendChild(hd);
+  });
+
+  // empty slots
+  for(let i=0;i<startDay;i++){
+    const cell = document.createElement('div');
+    calendarGrid.appendChild(cell);
+  }
+
+  for(let d=1; d<=daysInMonth; d++){
+    const dateISO = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const cell = document.createElement('div');
+    cell.className = "p-2 border rounded day-cell bg-white";
+    cell.innerHTML = `<div class="flex justify-between items-start">
+                        <div class="text-sm font-medium">${d}</div>
+                        <div class="text-xs text-gray-400">${new Date(dateISO).toLocaleDateString()}</div>
+                      </div>
+                      <div class="mt-2 text-xs" id="dots-${dateISO}"></div>`;
+    cell.onclick = ()=> openDayView(dateISO);
+    // add task dots
+    const dayTasks = tasks.filter(t=>t.date===dateISO && !t.deleted);
+    const dots = dayTasks.map((t,idx)=>`<span class="task-dot" title="${escapeHtml(t.title)}" style="background:${t.done? '#10B981' : '#6366F1'}"></span>`).join('');
+    setTimeout(()=> {
+      const el = document.getElementById(`dots-${dateISO}`);
+      if(el) el.innerHTML = dots;
+    },0);
+    calendarGrid.appendChild(cell);
+  }
+  feather.replace();
+}
+
+/* calendar controls */
+prevMonth.addEventListener('click', ()=>{ calState.viewMonth--; if(calState.viewMonth<0){ calState.viewYear--; calState.viewMonth=11;} renderCalendar();});
+nextMonth.addEventListener('click', ()=>{ calState.viewMonth++; if(calState.viewMonth>11){ calState.viewYear++; calState.viewMonth=0;} renderCalendar();});
+
+function openDayView(dateISO){
+  calState.selectedDay = dateISO;
+  dayLabel.textContent = new Date(dateISO).toLocaleDateString(undefined,{weekday:'long', month:'short', day:'numeric'});
+  daySubLabel.textContent = dateISO;
+  renderDayTasks(dateISO);
+  // flip card
+  calCard.parentElement.classList.add('flipped');
+  // show back by toggling transform (the CSS handles the flip visuals)
+  calCard.style.transform = 'rotateY(180deg)';
+}
+
+function closeDay(){
+  calCard.style.transform = '';
+  calCard.parentElement.classList.remove('flipped');
+}
+
+closeDayView.addEventListener('click', closeDay);
+backToCal.addEventListener('click', closeDay);
+
+function renderDayTasks(dateISO){
+  dayTaskList.innerHTML = "";
+  const dayTasks = tasks.filter(t=>t.date===dateISO);
+  if(!dayTasks.length){
+    dayTaskList.innerHTML = `<div class="text-sm text-gray-500">No tasks for this day.</div>`;
+  } else {
+    dayTasks.forEach(t=>{
+      const el = document.createElement('div');
+      el.className = "p-2 border rounded flex items-center justify-between";
+      el.innerHTML = `<div>
+                        <div class="font-medium ${t.done ? 'line-through text-gray-400':''}">${escapeHtml(t.title)}</div>
+                        <div class="text-xs text-gray-500">${t.time || ''} · ${t.tag || ''}</div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <button data-id="${t.id}" class="toggle-day-btn p-2 rounded">${t.done ? 'Undo' : 'Done'}</button>
+                        <button data-id="${t.id}" class="del-day-btn p-2 rounded text-red-600">Delete</button>
+                      </div>`;
+      dayTaskList.appendChild(el);
+    });
+    // attach
+    dayTaskList.querySelectorAll('.toggle-day-btn').forEach(b=>{
+      b.onclick = ()=> {
+        const id = b.dataset.id;
+        const t = tasks.find(x=>x.id===id);
+        if(t){ t.done = !t.done; saveTasks(tasks); renderDayTasks(dateISO); renderTasks(); pushActivity(`${t.done ? 'Completed' : 'Reopened'}: ${t.title}`); }
+      };
+    });
+    dayTaskList.querySelectorAll('.del-day-btn').forEach(b=>{
+      b.onclick = ()=> {
+        const id = b.dataset.id;
+        const idx = tasks.findIndex(x=>x.id===id);
+        if(idx>-1){ if(confirm("Delete?")){ pushActivity(`Deleted: ${tasks[idx].title}`); tasks.splice(idx,1); saveTasks(tasks); renderDayTasks(dateISO); renderTasks(); } }
+      };
+    });
+  }
+}
+
+addQuickTaskBtn.addEventListener('click', ()=>{
+  const title = quickTaskTitle.value.trim();
+  if(!title) return alert("Title required");
+  const time = quickTaskTime.value || '';
+  tasks.push({ id: cryptoRandomId(), title, date: calState.selectedDay, time, tag:'Quick', desc:'', done:false, created:Date.now() });
+  saveTasks(tasks);
+  quickTaskTitle.value = '';
+  quickTaskTime.value = '';
+  renderDayTasks(calState.selectedDay);
+  renderCalendar();
+  renderTasks();
+});
+
+/* ============================
+   helper: escapeHtml done above
+   ============================ */
+
+/* ============================
+   initial render + wiring
+   ============================ */
+renderTasks();
+renderCalendar();
+pushActivity("Welcome back — AutoBot loaded.");
+
+/* click outside modal to close */
+taskModal.addEventListener('click', (e)=>{ if(e.target===taskModal) closeModal(); });
+
+/* show search in small screens */
+document.getElementById('search').addEventListener('keydown', (e)=>{ if(e.key==='Escape') e.target.value=''; });
+
+/* simple keyboard: new task with N */
+document.addEventListener('keydown', (e)=>{ if(e.key==='n' || e.key==='N'){ openNewTask(); } });
+
+/* small helper: when tasks change, refresh calendar dots */
+const saveAndRefresh = ()=>{
+  saveTasks(tasks);
+  renderTasks(document.getElementById('search').value);
+  renderCalendar();
+};
+
+window.addEventListener('storage', ()=>{ tasks = loadTasks(); renderTasks(); renderCalendar(); }); // in case multiple tabs
+
+// ensure notification permission prompt early
+ensureNotificationPermission().then(ok=>{
+  if(ok) pushActivity("Notifications enabled.");
+});
+
+</script>
+</body>
+</html>
